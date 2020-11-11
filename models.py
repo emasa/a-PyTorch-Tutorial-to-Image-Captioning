@@ -14,11 +14,11 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self.enc_image_size = encoded_image_size
 
-        resnet = torchvision.models.resnet101(pretrained=True)  # pretrained ImageNet ResNet-101
+        cnn = torchvision.models.resnet101(pretrained=True)  # pretrained ImageNet ResNet-101
 
         # Remove linear and pool layers (since we're not doing classification)
-        modules = list(resnet.children())[:-2]
-        self.resnet = nn.Sequential(*modules)
+        modules = list(cnn.children())[:-2]
+        self.cnn = nn.Sequential(*modules)
 
         # Resize image to fixed size to allow input images of variable size
         self.adaptive_pool = nn.AdaptiveAvgPool2d((encoded_image_size, encoded_image_size))
@@ -32,7 +32,7 @@ class Encoder(nn.Module):
         :param images: images, a tensor of dimensions (batch_size, 3, image_size, image_size)
         :return: encoded images
         """
-        out = self.resnet(images)  # (batch_size, 2048, image_size/32, image_size/32)
+        out = self.cnn(images)  # (batch_size, 2048, image_size/32, image_size/32)
         out = self.adaptive_pool(out)  # (batch_size, 2048, encoded_image_size, encoded_image_size)
         out = out.permute(0, 2, 3, 1)  # (batch_size, encoded_image_size, encoded_image_size, 2048)
         return out
@@ -43,10 +43,10 @@ class Encoder(nn.Module):
 
         :param fine_tune: Allow?
         """
-        for p in self.resnet.parameters():
+        for p in self.cnn.parameters():
             p.requires_grad = False
         # If fine-tuning, only fine-tune convolutional blocks 2 through 4
-        for c in list(self.resnet.children())[5:]:
+        for c in list(self.cnn.children())[5:]:
             for p in c.parameters():
                 p.requires_grad = fine_tune
 
@@ -109,7 +109,8 @@ class DecoderWithAttention(nn.Module):
         self.vocab_size = vocab_size
         self.dropout = dropout
 
-        self.attention = Attention(encoder_dim, decoder_dim, attention_dim)  # attention network
+        if attention_dim is not None:
+            self.attention = Attention(encoder_dim, decoder_dim, attention_dim)  # attention network
 
         self.embedding = nn.Embedding(vocab_size, embed_dim)  # embedding layer
         self.dropout = nn.Dropout(p=self.dropout)
@@ -191,7 +192,7 @@ class DecoderWithAttention(nn.Module):
         # So, decoding lengths are actual lengths - 1
         decode_lengths = (caption_lengths - 1).tolist()
 
-        # Create tensors to hold word predicion scores and alphas
+        # Create tensors to hold word prediction scores (and alphas)
         predictions = torch.zeros(batch_size, max(decode_lengths), vocab_size).to(device)
         alphas = torch.zeros(batch_size, max(decode_lengths), num_pixels).to(device)
 
