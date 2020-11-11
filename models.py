@@ -10,11 +10,11 @@ class Encoder(nn.Module):
     Encoder.
     """
 
-    def __init__(self, encoded_image_size=14):
+    def __init__(self, encoded_image_size=14, backbone='resnet50'):
         super(Encoder, self).__init__()
         self.enc_image_size = encoded_image_size
 
-        cnn = torchvision.models.resnet101(pretrained=True)  # pretrained ImageNet ResNet-101
+        cnn = getattr(torchvision.models, backbone)(pretrained=True)  # pretrained ImageNet model
 
         # Remove linear and pool layers (since we're not doing classification)
         modules = list(cnn.children())[:-2]
@@ -91,7 +91,7 @@ class DecoderWithAttention(nn.Module):
     Decoder.
     """
 
-    def __init__(self, attention_dim, embed_dim, decoder_dim, vocab_size, encoder_dim=2048, dropout=0.5):
+    def __init__(self, attention_dim, embed_dim, decoder_dim, vocab_size, encoder_dim=2048, dropout=0.5, use_attention=True):
         """
         :param attention_dim: size of attention network
         :param embed_dim: embedding size
@@ -109,8 +109,10 @@ class DecoderWithAttention(nn.Module):
         self.vocab_size = vocab_size
         self.dropout = dropout
 
-        if attention_dim is not None:
+        if use_attention:
             self.attention = Attention(encoder_dim, decoder_dim, attention_dim)  # attention network
+        else:
+            self.attention = None
 
         self.embedding = nn.Embedding(vocab_size, embed_dim)  # embedding layer
         self.dropout = nn.Dropout(p=self.dropout)
@@ -194,6 +196,7 @@ class DecoderWithAttention(nn.Module):
 
         # Create tensors to hold word prediction scores (and alphas)
         predictions = torch.zeros(batch_size, max(decode_lengths), vocab_size).to(device)
+
         alphas = torch.zeros(batch_size, max(decode_lengths), num_pixels).to(device)
 
         # At each time-step, decode by
@@ -201,15 +204,20 @@ class DecoderWithAttention(nn.Module):
         # then generate a new word in the decoder with the previous word and the attention weighted encoding
         for t in range(max(decode_lengths)):
             batch_size_t = sum([l > t for l in decode_lengths])
-            attention_weighted_encoding, alpha = self.attention(encoder_out[:batch_size_t],
-                                                                h[:batch_size_t])
-            gate = self.sigmoid(self.f_beta(h[:batch_size_t]))  # gating scalar, (batch_size_t, encoder_dim)
-            attention_weighted_encoding = gate * attention_weighted_encoding
+
+            if self.attention is not None:
+                attention_weighted_encoding, alpha = self.attention(encoder_out[:batch_size_t], h[:batch_size_t])
+                alphas[:batch_size_t, t, :] = alpha
+
+                gate = self.sigmoid(self.f_beta(h[:batch_size_t]))  # gating scalar, (batch_size_t, encoder_dim)
+                context = gate * attention_weighted_encoding
+            else:
+                context = h[:batch_size_t]
+
             h, c = self.decode_step(
-                torch.cat([embeddings[:batch_size_t, t, :], attention_weighted_encoding], dim=1),
+                torch.cat([embeddings[:batch_size_t, t, :], context], dim=1),
                 (h[:batch_size_t], c[:batch_size_t]))  # (batch_size_t, decoder_dim)
             preds = self.fc(self.dropout(h))  # (batch_size_t, vocab_size)
             predictions[:batch_size_t, t, :] = preds
-            alphas[:batch_size_t, t, :] = alpha
 
         return predictions, encoded_captions, decode_lengths, alphas, sort_ind
