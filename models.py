@@ -111,12 +111,14 @@ class DecoderWithAttention(nn.Module):
 
         if use_attention:
             self.attention = Attention(encoder_dim, decoder_dim, attention_dim)  # attention network
+            decoder_input_sz = embed_dim + encoder_dim
         else:
             self.attention = None
+            decoder_input_sz = embed_dim
 
         self.embedding = nn.Embedding(vocab_size, embed_dim)  # embedding layer
         self.dropout = nn.Dropout(p=self.dropout)
-        self.decode_step = nn.LSTMCell(embed_dim + encoder_dim, decoder_dim, bias=True)  # decoding LSTMCell
+        self.decode_step = nn.LSTMCell(decoder_input_sz, decoder_dim, bias=True)  # decoding LSTMCell
         self.init_h = nn.Linear(encoder_dim, decoder_dim)  # linear layer to find initial hidden state of LSTMCell
         self.init_c = nn.Linear(encoder_dim, decoder_dim)  # linear layer to find initial cell state of LSTMCell
         self.f_beta = nn.Linear(decoder_dim, encoder_dim)  # linear layer to create a sigmoid-activated gate
@@ -210,12 +212,12 @@ class DecoderWithAttention(nn.Module):
                 alphas[:batch_size_t, t, :] = alpha
 
                 gate = self.sigmoid(self.f_beta(h[:batch_size_t]))  # gating scalar, (batch_size_t, encoder_dim)
-                context = gate * attention_weighted_encoding
+                context = [gate * attention_weighted_encoding]
             else:
-                context = h[:batch_size_t]
+                context = []
 
             h, c = self.decode_step(
-                torch.cat([embeddings[:batch_size_t, t, :], context], dim=1),
+                torch.cat([embeddings[:batch_size_t, t, :]] + context, dim=1),
                 (h[:batch_size_t], c[:batch_size_t]))  # (batch_size_t, decoder_dim)
             preds = self.fc(self.dropout(h))  # (batch_size_t, vocab_size)
             predictions[:batch_size_t, t, :] = preds
