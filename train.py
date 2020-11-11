@@ -251,7 +251,7 @@ def main():
 
     # Initialize / load checkpoint
     if checkpoint is None:
-        encoder_backbone, encoder_dim = 'resnet18', 512  # 512 for resnet18 & resnet34, 2048 for larger models
+        encoder_backbone, encoder_dim = 'resnet50', 2048  # 512 for resnet18 & resnet34, 2048 for larger models
 
         decoder = DecoderWithAttention(attention_dim=attention_dim,
                                        embed_dim=emb_dim,
