@@ -13,8 +13,8 @@ data_folder = 'data'  # folder with data files saved by create_input_files.py
 #data_folder = '../datasets/mscoco/data'  # folder with data files saved by create_input_files.py
 
 data_name = 'coco_5_cap_per_img_5_min_word_freq'  # base name shared by data files
-
 word_map_file = data_folder + '/WORDMAP_coco_5_cap_per_img_5_min_word_freq.json'  # word map, ensure it's the same the data was encoded with and the model was trained with
+
 checkpoint = './BEST_checkpoint_coco_5_cap_per_img_5_min_word_freq.pth.tar'  # model checkpoint
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # sets device for model and PyTorch tensors
 cudnn.benchmark = True  # set to true only if inputs to model are fixed size; otherwise lot of computational overhead

@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import skimage.transform
 import argparse
-from scipy.misc import imread, imresize
+from imageio import imread
+from skimage.transform import resize as imresize
 from PIL import Image
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -36,11 +37,12 @@ def caption_image_beam_search(encoder, decoder, image_path, word_map, beam_size=
     img = imresize(img, (256, 256))
     img = img.transpose(2, 0, 1)
     img = img / 255.
-    img = torch.FloatTensor(img).to(device)
+    image = torch.FloatTensor(img).to(device)[:3, :, :]  # drop alpha channel
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
     transform = transforms.Compose([normalize])
-    image = transform(img)  # (3, 256, 256)
+
+    image = transform(image)  # (3, 256, 256)
 
     # Encode
     image = image.unsqueeze(0)  # (1, 3, 256, 256)
@@ -81,14 +83,18 @@ def caption_image_beam_search(encoder, decoder, image_path, word_map, beam_size=
 
         embeddings = decoder.embedding(k_prev_words).squeeze(1)  # (s, embed_dim)
 
-        awe, alpha = decoder.attention(encoder_out, h)  # (s, encoder_dim), (s, num_pixels)
+        if decoder.attention:
+            awe, alpha = decoder.attention(encoder_out, h)  # (s, encoder_dim), (s, num_pixels)
+            alpha = alpha.view(-1, enc_image_size, enc_image_size)  # (s, enc_image_size, enc_image_size)
 
-        alpha = alpha.view(-1, enc_image_size, enc_image_size)  # (s, enc_image_size, enc_image_size)
+            gate = decoder.sigmoid(decoder.f_beta(h))  # gating scalar, (s, encoder_dim)
+            awe = gate * awe
+            context = [awe]
+        else:
+            alpha = torch.zeros(len(embeddings), enc_image_size, enc_image_size).to(device)
+            context = []
 
-        gate = decoder.sigmoid(decoder.f_beta(h))  # gating scalar, (s, encoder_dim)
-        awe = gate * awe
-
-        h, c = decoder.decode_step(torch.cat([embeddings, awe], dim=1), (h, c))  # (s, decoder_dim)
+        h, c = decoder.decode_step(torch.cat([embeddings] + context, dim=1), (h, c))  # (s, decoder_dim)
 
         scores = decoder.fc(h)  # (s, vocab_size)
         scores = F.log_softmax(scores, dim=1)
@@ -104,8 +110,8 @@ def caption_image_beam_search(encoder, decoder, image_path, word_map, beam_size=
             top_k_scores, top_k_words = scores.view(-1).topk(k, 0, True, True)  # (s)
 
         # Convert unrolled indices to actual indices of scores
-        prev_word_inds = top_k_words / vocab_size  # (s)
-        next_word_inds = top_k_words % vocab_size  # (s)
+        prev_word_inds = (top_k_words / vocab_size).long()  # (s)
+        next_word_inds = (top_k_words % vocab_size).long()  # (s)
 
         # Add new words to sequences, alphas
         seqs = torch.cat([seqs[prev_word_inds], next_word_inds.unsqueeze(1)], dim=1)  # (s, step+1)
@@ -193,6 +199,7 @@ if __name__ == '__main__':
     parser.add_argument('--word_map', '-wm', help='path to word map JSON')
     parser.add_argument('--beam_size', '-b', default=5, type=int, help='beam size for beam search')
     parser.add_argument('--dont_smooth', dest='smooth', action='store_false', help='do not smooth alpha overlay')
+    parser.add_argument('--visualize', dest='visualize', action='store_true', help='visualize attention maps')
 
     args = parser.parse_args()
 
@@ -215,4 +222,8 @@ if __name__ == '__main__':
     alphas = torch.FloatTensor(alphas)
 
     # Visualize caption and attention of best sequence
-    visualize_att(args.img, seq, alphas, rev_word_map, args.smooth)
+    if args.visualize:
+        visualize_att(args.img, seq, alphas, rev_word_map, args.smooth)
+    else:
+        words = [rev_word_map[ind] for ind in seq]
+        print("Prediction:", words)
