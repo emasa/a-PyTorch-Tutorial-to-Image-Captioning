@@ -18,7 +18,7 @@ class Encoder(nn.Module):
 
         # Remove linear and pool layers (since we're not doing classification)
         modules = list(cnn.children())[:-2]
-        self.cnn = nn.Sequential(*modules)
+        self.resnet = nn.Sequential(*modules)
 
         # Resize image to fixed size to allow input images of variable size
         self.adaptive_pool = nn.AdaptiveAvgPool2d((encoded_image_size, encoded_image_size))
@@ -49,6 +49,9 @@ class Encoder(nn.Module):
         for c in list(self.cnn.children())[5:]:
             for p in c.parameters():
                 p.requires_grad = fine_tune
+
+    def cnn(self, images):
+        return self.resnet(images)
 
 
 class Attention(nn.Module):
